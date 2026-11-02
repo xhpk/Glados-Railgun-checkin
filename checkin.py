@@ -99,7 +99,8 @@ class Config:
 
     ENV_PUSH_KEY = "PUSHDEER_SENDKEY"
     ENV_SERVERCHAN_KEY = "SERVERCHAN_SENDKEY"
-    ENV_COOKIES = "GLADOS_COOKIES"
+    ENV_GLADOS_COOKIES = "GLADOS_COOKIES"
+    ENV_RAILGUN_COOKIE = "railgun_cookie"
     ENV_EXCHANGE_PLAN = "GLADOS_EXCHANGE_PLAN"
     ENV_VERBOSE = "GLADOS_VERBOSE"
 
@@ -111,6 +112,10 @@ class Config:
 
     """默认域名"""
     DOMAINS = ["glados.cloud", "railgun.info"]
+    COOKIE_ENV_BY_DOMAIN = {
+        "glados.cloud": ENV_GLADOS_COOKIES,
+        "railgun.info": ENV_RAILGUN_COOKIE,
+    }
 
     """兑换计划列表"""
     EXCHANGE_PLANS = {
@@ -122,7 +127,7 @@ class Config:
     def __init__(self):
         self.push_key: str = ""
         self.serverchan_key: str = ""
-        self.cookies_list: List[str] = []
+        self.cookies_by_domain: Dict[str, List[str]] = {}
         self.exchange_plan: str = self.DEFAULT_EXCHANGE_PLAN
         self.verbose: bool = self.DEFAULT_VERBOSE
         self._load_config()
@@ -131,7 +136,6 @@ class Config:
         """加载配置"""
         push_key_env: Optional[str] = os.environ.get(self.ENV_PUSH_KEY)
         serverchan_key_env: Optional[str] = os.environ.get(self.ENV_SERVERCHAN_KEY)
-        raw_cookies_env: Optional[str] = os.environ.get(self.ENV_COOKIES)
         exchange_plan_env: Optional[str] = os.environ.get(self.ENV_EXCHANGE_PLAN)
         verbose_env: Optional[str] = os.environ.get(self.ENV_VERBOSE)
 
@@ -147,13 +151,19 @@ class Config:
         else:
             self.serverchan_key = serverchan_key_env
 
-        if not raw_cookies_env:
-            logger.warning(f"{LogEmoji.WARNING} 环境变量 '{self.ENV_COOKIES}' 未设置。")
-            self.cookies_list = []
-        else:
-            self.cookies_list = [cookie.strip() for cookie in raw_cookies_env.split("&") if cookie.strip()]
-            if not self.cookies_list:
-                raise ValueError(f"环境变量 '{self.ENV_COOKIES}' 已设置，但未包含任何有效的 Cookie。")
+        self.cookies_by_domain = {}
+        for domain in self.DOMAINS:
+            env_name = self.COOKIE_ENV_BY_DOMAIN[domain]
+            raw_cookies: Optional[str] = os.environ.get(env_name)
+            if not raw_cookies:
+                logger.warning(f"{LogEmoji.WARNING} 环境变量 '{env_name}' 未设置，跳过 {domain}。")
+                continue
+
+            cookies = [cookie.strip() for cookie in raw_cookies.split("&") if cookie.strip()]
+            if not cookies:
+                logger.warning(f"{LogEmoji.WARNING} 环境变量 '{env_name}' 未包含有效的 Cookie，跳过 {domain}。")
+                continue
+            self.cookies_by_domain[domain] = cookies
 
         if not exchange_plan_env:
             logger.warning(f"{LogEmoji.WARNING} 环境变量 '{self.ENV_EXCHANGE_PLAN}' 未设置，将使用默认设置（不自动兑换）。")
@@ -166,7 +176,11 @@ class Config:
                 logger.warning(f"{LogEmoji.WARNING} 环境变量 '{self.ENV_EXCHANGE_PLAN}' 的值 '{exchange_plan_env}' 无效，将跳过自动兑换。")
                 self.exchange_plan = self.DEFAULT_EXCHANGE_PLAN
 
-        logger.info(f"{LogEmoji.INFO} 共加载了 {len(self.cookies_list)} 个 Cookie 用于签到。")
+        cookie_counts = ", ".join(
+            f"{domain}: {len(self.cookies_by_domain.get(domain, []))} 个"
+            for domain in self.DOMAINS
+        )
+        logger.info(f"{LogEmoji.INFO} 已加载 Cookie: {cookie_counts}。")
         logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_PUSH_KEY} {'已设置' if push_key_env else '未设置'}，{self.ENV_SERVERCHAN_KEY} {'已设置' if serverchan_key_env else '未设置'}。")
         logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_EXCHANGE_PLAN}: {self.exchange_plan}。")
 
@@ -378,7 +392,8 @@ class API:
                 else:
                     self._log("error", LogEmoji.ERROR, f"服务端拒绝签到(code=4, reason={reason})，请检查账户风控状态", force=True)
             elif code == -2:
-                self._log("error", LogEmoji.ERROR, f"无权限(code=-2)：Cookie 可能已失效，请重新登录 {self.domain} 刷新 Cookie 并更新仓库 Secret GLADOS_COOKIES 后重试", force=True)
+                cookie_env = Config.COOKIE_ENV_BY_DOMAIN.get(self.domain, Config.ENV_GLADOS_COOKIES)
+                self._log("error", LogEmoji.ERROR, f"无权限(code=-2)：Cookie 可能已失效，请重新登录 {self.domain} 刷新 Cookie 并更新仓库 Secret {cookie_env} 后重试", force=True)
             else:
                 self._log("error", LogEmoji.ERROR, f"未预期响应(code={code}, message={message})，请检查 GLaDOS 服务状态或 Cookie", force=True)
             result["code"] = CheckinStatus.FAILURE
@@ -596,18 +611,20 @@ class Checker:
 
     def checkin_all(self):
         """执行所有签到任务"""
-        cookie_count = len(self.config.cookies_list)
-        domain_count = len(self.config.DOMAINS)
-        total_tasks = cookie_count * domain_count
+        total_tasks = sum(len(self.config.cookies_by_domain.get(domain, [])) for domain in self.config.DOMAINS)
         task_idx = 0
 
-        logger.info(f"{LogEmoji.INFO} 共 {cookie_count} 个 Cookie, {domain_count} 个域名, 共 {total_tasks} 个任务")
+        logger.info(f"{LogEmoji.INFO} 共 {total_tasks} 个签到任务")
 
-        for cookie_idx, cookie in enumerate(self.config.cookies_list, 1):
-            logger.info(f"{LogEmoji.START} ========== 开始处理 Cookie {cookie_idx} ==========")
+        for domain in self.config.DOMAINS:
+            cookies = self.config.cookies_by_domain.get(domain, [])
+            if not cookies:
+                logger.warning(f"{LogEmoji.WARNING} 未配置 {domain} 的 Cookie，跳过签到。")
+                continue
 
-            for domain in self.config.DOMAINS:
+            for cookie_idx, cookie in enumerate(cookies, 1):
                 task_idx += 1
+                logger.info(f"{LogEmoji.START} ========== 开始处理 {domain} Cookie {cookie_idx} ==========")
                 logger.info(f"{LogEmoji.INFO} ----- 任务 {task_idx}/{total_tasks}: {LogEmoji.COOKIE}[{cookie_idx}] on {LogEmoji.DOMAIN}[{domain}] -----")
 
                 result = self._checkin_on_domain(cookie, cookie_idx, domain)
@@ -704,7 +721,7 @@ def main():
         logger.info(f"{LogEmoji.START} 步骤 1: 加载配置")
         config = Config()
 
-        if not config.cookies_list:
+        if not any(config.cookies_by_domain.values()):
             logger.error(f"{LogEmoji.ERROR} 未找到有效的 Cookie, 退出程序。")
             payload = {"title": "# 未找到 cookies!", "rows": []}
         else:

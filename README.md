@@ -30,17 +30,18 @@
 ### 配置 Secrets
 
 跳转至自己仓库的 `Settings` → `Secrets and variables` → `Action`，按需添加以下 `repository secret`：
+#### 3.1 站点 Cookie
 
-#### 3.1 GLADOS_COOKIES（必填）
+分别为两个站点配置 Cookie；只使用某一个站点时，仅需配置对应的 Secret：
 
-对应 GLaDOS 账号 Cookie 中的有效部分，获取方式：
+- `GLADOS_COOKIES`：`glados.cloud` 的 Cookie
+- `railgun_cookie`：`railgun.info` 的 Cookie
 
-- 在 GLaDOS 签到页面按 `F12`，切换到 `Network` 页面下，刷新
-- 点击第一个请求，在 `Request Headers` 下找到 `Cookie`，右键复制其值即可
+获取方式：在对应站点的签到页面按 `F12`，切换到 `Network` 页面后刷新，点击请求并从 `Request Headers` 中复制 `Cookie` 的值。
 
-  > 参考格式：`koa:sess=eyJ1c2xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxAwMH0=; koa:sess.sig=xJkOxxxxxxxxxxxxxxxtnM;`
+> 参考格式：`koa:sess=eyJ1cxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxAwMH0=; koa:sess.sig=xJkOxxxxxxxxxxxxxxxtnM;`
 
-- 多账号请在 `COOKIES` 中添加多个 cookies，中间使用 `&` 连接即可（例如：`c1&c2&c3`）
+同一站点有多个账号时，在对应 Secret 中填写多个 Cookie，并用 `&` 分隔（例如：`c1&c2&c3`）。两个环境变量互相独立，不会交叉用于另一个站点。
 
 ![图片加载失败](imgs/2.png)
 ![图片加载失败](imgs/3.png)
@@ -71,9 +72,9 @@
 ## 更新日志
 
 - **2026-01**: 重构代码，添加日志输出方便定位，支持新版网址，支持配置积分兑换策略。
-- **2026-04**: 优化代码逻辑与日志输出，支持[新版域名](https://railgun.info)，在 `GLADOS_COOKIES` 中添加新版域名下的 cookies 即可使用。
 - **2026-09**: 设备平台自适应重试（无需手动配置 UA 即可自动恢复签到）；网络层自动重试与退避，降低 CI 网络抖动导致的误报失败；日志时间统一为北京时间，定时任务调整为北京时间每天 2 次并避开整点高峰；默认关闭自动兑换，需显式配置后才启用。
 - **2026-10**: 日志级别短标签 `[I]/[W]/[E]` ；推送兼容 Server酱（策略模式多后端「都发」），新增 `requirements.txt` 。
+- **2026-11**: `glados.cloud` 使用 `GLADOS_COOKIES`，`railgun.info` 使用独立的 `railgun_cookie`。
 
 ## 问题排查与定位
 

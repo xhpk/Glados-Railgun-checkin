@@ -51,6 +51,7 @@ jobs:
         PUSHDEER_SENDKEY: ${{ secrets.PUSHDEER_SENDKEY }}
         SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
         GLADOS_COOKIES: ${{ secrets.GLADOS_COOKIES }}
+        railgun_cookie: ${{ secrets.railgun_cookie }}
         GLADOS_EXCHANGE_PLAN: ${{ secrets.GLADOS_EXCHANGE_PLAN }}
         GLADOS_VERBOSE: ${{ secrets.GLADOS_VERBOSE }}
 
